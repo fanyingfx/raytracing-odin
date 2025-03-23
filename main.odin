@@ -11,7 +11,7 @@ import "core:strings"
 main :: proc() {
 
 
-	world: [dynamic]Hitable
+	world: [dynamic]ScreenObject
 	defer delete(world)
 	sb: strings.Builder
 

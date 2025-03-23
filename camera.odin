@@ -114,11 +114,10 @@ get_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
 
 	return {ray_origin, ray_direction}
 }
-render :: proc(camera: Camera, world: []Hitable, sb: ^strings.Builder) {
+render :: proc(camera: Camera, world: []ScreenObject, sb: ^strings.Builder) {
 	fmt.sbprintf(sb, "P3\n%d %d\n255\n", camera.image_width, camera.image_height)
-	// fmt.printf("P3\n%d %d\n255\n", camera.image_width, camera.image_height)
 	for j in 0 ..< camera.image_height {
-		if j % 50 == 0 {
+		if j % 2 == 0 {
 			fmt.eprintf("\rScanlines remaining: %d ", camera.image_height - j)
 		}
 		for i in 0 ..< camera.image_width {
@@ -127,8 +126,6 @@ render :: proc(camera: Camera, world: []Hitable, sb: ^strings.Builder) {
 				r := get_ray(camera, i, j)
 				pixel_color += ray_color(r, camera.max_depth, world)
 			}
-			// fmt.print("pixel_color: ")
-			// print_color(pixel_color)
 			write_color(sb, camera.pixel_samples_scale * pixel_color)
 		}
 	}
@@ -137,7 +134,7 @@ render :: proc(camera: Camera, world: []Hitable, sb: ^strings.Builder) {
 ray_at :: proc(ray: Ray, t: f64) -> Point3 {
 	return ray.orig + t * ray.dir
 }
-ray_color :: proc(r: Ray, depth: int, world: []Hitable) -> Color {
+ray_color :: proc(r: Ray, depth: int, world: []ScreenObject) -> Color {
 	if depth <= 0 do return {0, 0, 0}
 	rec: HitRecord
 	if hit_list(world, r, {0.001, Infinity}, &rec) {

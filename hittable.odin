@@ -13,11 +13,11 @@ set_face_normal :: proc(hit_record: ^HitRecord, r: Ray, outward_normal: Vec3) {
 	hit_record.normal = hit_record.front_face ? outward_normal : -outward_normal
 }
 
-Hitable :: union {
+ScreenObject :: union {
 	Sphere,
 }
 
-hit :: proc(obj: Hitable, ray: Ray, ray_t: Interval, rec: ^HitRecord) -> bool {
+hit :: proc(obj: ScreenObject, ray: Ray, ray_t: Interval, rec: ^HitRecord) -> bool {
 	switch obj in obj {
 	case Sphere:
 		return hit_sphere(obj, ray, ray_t, rec)
@@ -25,7 +25,7 @@ hit :: proc(obj: Hitable, ray: Ray, ray_t: Interval, rec: ^HitRecord) -> bool {
 	panic("Unreachable")
 }
 hit_list :: proc(
-	objs: []Hitable,
+	objs: []ScreenObject,
 	r: Ray,
 	ray_t: Interval,
 	rec: ^HitRecord,
