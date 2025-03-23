@@ -4,6 +4,7 @@ import "core:math/linalg"
 Sphere :: struct {
 	center: Point3,
 	radius: f64,
+	mat : ^Material
 }
 hit_sphere :: proc(
 	sphere: Sphere,
@@ -15,7 +16,6 @@ hit_sphere :: proc(
 	a := linalg.length2(r.dir)
 	h := linalg.dot(r.dir, oc)
 	c := linalg.length2(oc) - sphere.radius * sphere.radius
-
 	discriminant := h * h - a * c
 	if discriminant < 0 {
 
@@ -37,6 +37,7 @@ hit_sphere :: proc(
 	rec.p = ray_at(r, rec.t)
 	outward_normal := (rec.p - sphere.center) / sphere.radius
 	set_face_normal(rec, r, outward_normal)
+	rec.mat = sphere.mat
 
 	return true
 }

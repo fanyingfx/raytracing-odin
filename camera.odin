@@ -1,52 +1,175 @@
 package raytracing
 import "core:fmt"
+import "core:math"
+import la "core:math/linalg"
+import "core:math/rand"
 import "core:os"
 
-Camera :: struct {
-	image_height:  int,
-	image_width: int,
-	center:        Point3,
-	pixel00_loc:   Point3,
-	pixel_delta_u: Vec3,
-	pixel_delta_v: Vec3,
+Infinity :: f64(0h7ff00000_00000000)
+
+Vec3 :: [3]f64
+Color :: Vec3
+Point3 :: Vec3
+
+
+Ray :: struct {
+	orig: Point3,
+	dir:  Vec3,
 }
-init_camera :: proc(aspect_ratio: f64, image_width: int) -> Camera {
+Camera :: struct {
+	image_width:         int,
+	image_height:        int,
+	center:              Point3,
+	pixel00_loc:         Point3,
+	pixel_delta_u:       Vec3,
+	pixel_delta_v:       Vec3,
+	pixel_samples_scale: f64,
+	samples_per_pixel:   int,
+	max_depth:           int,
+	u, v, w:             Vec3,
+	defocus_angle:       f64,
+	defocus_disk_u:      Vec3,
+	defocus_disk_v:      Vec3,
+	// vfov : f64
+}
+init_camera :: proc(
+	aspect_ratio: f64,
+	image_width: int,
+	samples_per_pixel: int,
+	max_depth: int,
+	vfov: f64,
+	lookfrom: Point3,
+	lookat: Point3,
+	vup: Vec3,
+	defocus_angle: f64,
+	focus_dist: f64,
+) -> Camera {
 	image_height_v := int(f64(image_width) / aspect_ratio)
 	image_height := int(image_height_v if image_height_v >= 1 else 1)
 
-	// Camera
-	focal_length := 1.0
-	viewport_height := 2.0
+	pixel_samples_scale := 1.0 / f64(samples_per_pixel)
+	center := lookfrom
+
+	focal_length := la.length(lookfrom - lookat)
+	theta := math.to_radians(vfov)
+	h := math.tan(theta / 2)
+
+	viewport_height := 2.0 * h * focus_dist
 	viewport_width := viewport_height * (f64(image_width) / f64(image_height))
-	center := Point3{0, 0, 0}
 
-	// Calculate the vectors across the horizontal and down the vertical viewport edges.
-	viewport_u := Vec3{viewport_width, 0, 0}
-	viewport_v := Vec3{0, -viewport_height, 0}
+	w := la.normalize(lookfrom - lookat)
+	u := la.normalize(la.cross(vup, w))
+	v := la.cross(w, u)
 
-	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
+
+	viewport_u := viewport_width * u
+	viewport_v := -viewport_height * v
+
 	pixel_delta_u := viewport_u / f64(image_width)
 	pixel_delta_v := viewport_v / f64(image_height)
-	viewport_upper_left: Vec3 = center - Vec3{0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
+	viewport_upper_left: Vec3 = center - (focus_dist * w) - viewport_u / 2 - viewport_v / 2
 
 	pixel00_loc: Vec3 = viewport_upper_left + (0.5 * (pixel_delta_u + pixel_delta_v))
-	return {image_width,image_height, center, pixel00_loc, pixel_delta_u, pixel_delta_v}
+
+	defocus_radius := focus_dist * math.tan(math.to_radians(defocus_angle / 2))
+	defocus_disk_u := u * defocus_radius
+	defocus_disk_v := v * defocus_radius
+
+	return {
+		image_width,
+		image_height,
+		center,
+		pixel00_loc,
+		pixel_delta_u,
+		pixel_delta_v,
+		pixel_samples_scale,
+		samples_per_pixel,
+		max_depth,
+		u,
+		v,
+		w,
+		defocus_angle,
+		defocus_disk_u,
+		defocus_disk_v,
+	}
 }
-render :: proc(world:[]Hitable){
-	camera:=init_camera(1.0,100)
+sample_square :: proc() -> Vec3 {
+	return {rand.float64() - 0.5, rand.float64() - 0.5, 0}
+
+}
+get_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
+	defocus_disk_sample :: proc(camera: Camera) -> Point3 {
+		p := random_in_uint_disk()
+		return camera.center + (p.x * camera.defocus_disk_u) + (p.y * camera.defocus_disk_v)
+	}
+	offset := sample_square()
+	pixel_sample :=
+		camera.pixel00_loc +
+		((f64(i) + offset.x) * camera.pixel_delta_u) +
+		((f64(j) + offset.y) * camera.pixel_delta_v)
+
+	ray_origin := camera.defocus_angle <= 0 ? camera.center : defocus_disk_sample(camera)
+	ray_direction := pixel_sample - ray_origin
+
+	return {ray_origin, ray_direction}
+}
+render :: proc(camera: Camera, world: []Hitable) {
 	fmt.printf("P3\n%d %d\n255\n", camera.image_width, camera.image_height)
 	for j in 0 ..< camera.image_height {
 		fmt.eprintf("\rScanlines remaining: %d ", camera.image_height - j)
 		for i in 0 ..< camera.image_width {
-			pixel_center := camera.pixel00_loc + (f64(i) * camera.pixel_delta_u) + (f64(j) * camera.pixel_delta_v)
-			ray_direction := pixel_center - camera.center
-
-			r := Ray {
-				orig = camera.center,
-				dir  = ray_direction,
+			pixel_color := Color{0, 0, 0}
+			for sample := 0; sample < camera.samples_per_pixel; sample += 1 {
+				r := get_ray(camera, i, j)
+				pixel_color += ray_color(r, camera.max_depth, world)
 			}
-			pixel_color := ray_color(r, world)
-			write_color(os.stdout, pixel_color)
+			write_color(os.stdout, camera.pixel_samples_scale * pixel_color)
 		}
 	}
+}
+
+ray_at :: proc(ray: Ray, t: f64) -> Point3 {
+	return ray.orig + t * ray.dir
+}
+ray_color :: proc(r: Ray, depth: int, world: []Hitable) -> Color {
+	if depth <= 0 do return {0, 0, 0}
+	rec: HitRecord
+	if hit_list(world, r, {0.001, Infinity}, &rec) {
+		scattered: Ray
+		attenuation: Color
+		is_scatter: bool
+		switch mat in rec.mat {
+		case Lambertian:
+			is_scatter = lambertian_scatter(mat, r, rec, &attenuation, &scattered)
+		case Metal:
+			is_scatter = metal_scatter(mat, r, rec, &attenuation, &scattered)
+		case Dielectric:
+			is_scatter = dielectric_scatter(mat, r, rec, &attenuation, &scattered)
+		}
+		if is_scatter do return attenuation * ray_color(scattered, depth - 1, world)
+		return {0, 0, 0}
+	}
+	unit_direction := la.normalize(r.dir)
+	a := 0.5 * (unit_direction.y + 1.0)
+	return (1.0 - a) * Color{1.0, 1.0, 1.0} + a * Color{0.5, 0.7, 1.0}
+}
+
+linear_to_gamma :: proc(linear_component: f64) -> f64 {
+	if linear_component > 0 {
+		return math.sqrt(linear_component)
+	}
+	return 0
+}
+
+write_color :: proc(fd: os.Handle, color: Color) {
+	intensity := Interval{0.0, 0.999}
+
+	r := linear_to_gamma(color.r)
+	g := linear_to_gamma(color.g)
+	b := linear_to_gamma(color.b)
+
+	ir := i64(256 * interval_clamp(intensity, r))
+	ig := i64(256 * interval_clamp(intensity, g))
+	ib := i64(256 * interval_clamp(intensity, b))
+	fmt.fprintf(fd, "%d %d %d\n", ir, ig, ib)
 }

@@ -18,3 +18,9 @@ interval_surrounds :: proc(interval: Interval, x: f64) -> bool {
 
 	return interval.min < x && x < interval.max
 }
+interval_clamp :: proc(interval:Interval,x:f64)->f64{
+	if x < interval.min do return interval.min
+	if x > interval.max do return interval.max
+	return x
+}
+
