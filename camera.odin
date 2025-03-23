@@ -4,6 +4,7 @@ import "core:math"
 import la "core:math/linalg"
 import "core:math/rand"
 import "core:os"
+import "core:strings"
 
 Infinity :: f64(0h7ff00000_00000000)
 
@@ -94,7 +95,7 @@ init_camera :: proc(
 	}
 }
 sample_square :: proc() -> Vec3 {
-	return {rand.float64() - 0.5, rand.float64() - 0.5, 0}
+	return {random_f64() - 0.5, random_f64() - 0.5, 0}
 
 }
 get_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
@@ -113,17 +114,22 @@ get_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
 
 	return {ray_origin, ray_direction}
 }
-render :: proc(camera: Camera, world: []Hitable) {
-	fmt.printf("P3\n%d %d\n255\n", camera.image_width, camera.image_height)
+render :: proc(camera: Camera, world: []Hitable, sb: ^strings.Builder) {
+	fmt.sbprintf(sb, "P3\n%d %d\n255\n", camera.image_width, camera.image_height)
+	// fmt.printf("P3\n%d %d\n255\n", camera.image_width, camera.image_height)
 	for j in 0 ..< camera.image_height {
-		fmt.eprintf("\rScanlines remaining: %d ", camera.image_height - j)
+		if j % 50 == 0 {
+			fmt.eprintf("\rScanlines remaining: %d ", camera.image_height - j)
+		}
 		for i in 0 ..< camera.image_width {
 			pixel_color := Color{0, 0, 0}
 			for sample := 0; sample < camera.samples_per_pixel; sample += 1 {
 				r := get_ray(camera, i, j)
 				pixel_color += ray_color(r, camera.max_depth, world)
 			}
-			write_color(os.stdout, camera.pixel_samples_scale * pixel_color)
+			// fmt.print("pixel_color: ")
+			// print_color(pixel_color)
+			write_color(sb, camera.pixel_samples_scale * pixel_color)
 		}
 	}
 }
@@ -135,9 +141,11 @@ ray_color :: proc(r: Ray, depth: int, world: []Hitable) -> Color {
 	if depth <= 0 do return {0, 0, 0}
 	rec: HitRecord
 	if hit_list(world, r, {0.001, Infinity}, &rec) {
+
 		scattered: Ray
 		attenuation: Color
 		is_scatter: bool
+
 		switch mat in rec.mat {
 		case Lambertian:
 			is_scatter = lambertian_scatter(mat, r, rec, &attenuation, &scattered)
@@ -161,7 +169,7 @@ linear_to_gamma :: proc(linear_component: f64) -> f64 {
 	return 0
 }
 
-write_color :: proc(fd: os.Handle, color: Color) {
+write_color :: proc(sb: ^strings.Builder, color: Color) {
 	intensity := Interval{0.0, 0.999}
 
 	r := linear_to_gamma(color.r)
@@ -171,5 +179,17 @@ write_color :: proc(fd: os.Handle, color: Color) {
 	ir := i64(256 * interval_clamp(intensity, r))
 	ig := i64(256 * interval_clamp(intensity, g))
 	ib := i64(256 * interval_clamp(intensity, b))
-	fmt.fprintf(fd, "%d %d %d\n", ir, ig, ib)
+	fmt.sbprintf(sb, "%d %d %d\n", ir, ig, ib)
+}
+print_color :: proc(color: Color) {
+	intensity := Interval{0.0, 0.999}
+
+	r := linear_to_gamma(color.r)
+	g := linear_to_gamma(color.g)
+	b := linear_to_gamma(color.b)
+
+	ir := i64(256 * interval_clamp(intensity, r))
+	ig := i64(256 * interval_clamp(intensity, g))
+	ib := i64(256 * interval_clamp(intensity, b))
+	fmt.printfln("%d %d %d\n", ir, ig, ib)
 }

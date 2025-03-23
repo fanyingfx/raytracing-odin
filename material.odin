@@ -78,7 +78,7 @@ dielectric_scatter :: proc(
 	cannot_refract := ri * sin_theta > 1.0
 	direction: Vec3
 
-	if cannot_refract || reflectance(cos_theta,ri)>rand.float64(){
+	if cannot_refract || reflectance(cos_theta,ri)>random_f64(){
 
 		direction = reflect(unit_direction, rec.normal)
 	} else {

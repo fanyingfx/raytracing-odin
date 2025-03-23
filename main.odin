@@ -4,6 +4,7 @@ import "core:math"
 import la "core:math/linalg"
 import "core:math/rand"
 import "core:os"
+import "core:strings"
 
 
 // IMAGE
@@ -12,6 +13,7 @@ main :: proc() {
 
 	world: [dynamic]Hitable
 	defer delete(world)
+	sb: strings.Builder
 
 	ground_material: Material = Lambertian{{0.5, 0.5, 0.5}}
 	append(&world, Sphere{{0, -1000, 0}, 1000, &ground_material})
@@ -22,24 +24,22 @@ main :: proc() {
 			center := Point3{f64(a) + 0.9 * rand.float64(), 0.2, f64(b) + rand.float64()}
 
 			if la.length(center - Point3{4, 0.2, 0}) > 0.9 {
-				sphere_material: Material
+				sphere_material: ^Material = new(Material, context.temp_allocator)
 
 				if choose_mat < 0.8 {
 					// diffuse
 					albedo: Color = random_vec() * random_vec()
-					sphere_material: Material = Lambertian{albedo}
-					append(&world, Sphere{center, 0.2, &sphere_material})
+					sphere_material^ = Lambertian{albedo}
 				} else if choose_mat < 0.95 {
 					//metal
 					albedo := random_vec_range(0.5, 1)
 					fuzz := rand.float64_range(0, 0.5)
-					sphere_material: Material = Metal{albedo, fuzz}
-					append(&world, Sphere{center, 0.2, &sphere_material})
+					sphere_material^ = Metal{albedo, fuzz}
 				} else {
 					//glass
-					sphere_material: Material = Dielectric{1.5}
-					append(&world, Sphere{center, 0.2, &sphere_material})
+					sphere_material^ = Dielectric{1.5}
 				}
+				append(&world, Sphere{center, 0.2, sphere_material})
 			}
 		}
 	}
@@ -80,7 +80,9 @@ main :: proc() {
 		defocus_angle,
 		focus_dist,
 	)
-	render(camera, world[:])
+	render(camera, world[:], &sb)
+	free_all(context.temp_allocator)
+	os.write_entire_file("image.ppm",sb.buf[:])
 
 	fmt.eprint("\rDone.                 \n")
 }
