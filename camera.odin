@@ -5,6 +5,9 @@ import la "core:math/linalg"
 import "core:math/rand"
 import "core:os"
 import "core:strings"
+import "core:sync"
+import "core:thread"
+import "core:time"
 
 Infinity :: f64(0h7ff00000_00000000)
 
@@ -31,7 +34,6 @@ Camera :: struct {
 	defocus_angle:       f64,
 	defocus_disk_u:      Vec3,
 	defocus_disk_v:      Vec3,
-	// vfov : f64
 }
 init_camera :: proc(
 	aspect_ratio: f64,
@@ -114,23 +116,69 @@ get_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
 
 	return {ray_origin, ray_direction}
 }
+Thread_Data :: struct {
+	camera:     Camera,
+	world:      []ScreenObject,
+	line_start: int,
+	line_end:   int,
+	sb:         strings.Builder,
+}
+sema: sync.Atomic_Sema
 render :: proc(camera: Camera, world: []ScreenObject, sb: ^strings.Builder) {
 	fmt.sbprintf(sb, "P3\n%d %d\n255\n", camera.image_width, camera.image_height)
-	for j in 0 ..< camera.image_height {
-		if j % 2 == 0 {
-			fmt.eprintf("\rScanlines remaining: %d ", camera.image_height - j)
-		}
-		for i in 0 ..< camera.image_width {
-			pixel_color := Color{0, 0, 0}
-			for sample := 0; sample < camera.samples_per_pixel; sample += 1 {
-				r := get_ray(camera, i, j)
-				pixel_color += ray_color(r, camera.max_depth, world)
-			}
-			write_color(sb, camera.pixel_samples_scale * pixel_color)
-		}
+	THREADS_NUM :: 16
+	threads_data: [THREADS_NUM]Thread_Data
+	threads: [THREADS_NUM]^thread.Thread
+
+	step := camera.image_height / THREADS_NUM
+	d: Thread_Data = {
+		camera = camera,
+		world  = world,
 	}
+	for &d, idx in threads_data {
+		t := thread.create(thread_render_proc1)
+		assert(t != nil)
+		d.camera = camera
+		d.world = world
+		d.line_start = idx * step
+		d.line_end = d.line_start + step
+		if idx == THREADS_NUM - 1 {
+			d.line_end = camera.image_height
+		}
+		t.data = &d
+		t.id = idx
+		thread.start(t)
+		// wait enougth time to start thread
+		sync.atomic_sema_wait_with_timeout(&sema, time.Millisecond * 50)
+		threads[idx] = t
+	}
+	thread.join_multiple(..threads[:])
+	for th in threads {
+		d := (^Thread_Data)(th.data)
+		fmt.sbprintf(sb, "%s", d.sb.buf[:])
+		thread.destroy(th)
+	}
+
 }
 
+thread_render_proc1 :: proc(t: ^thread.Thread) {
+	d := (^Thread_Data)(t.data)
+	for j in d.line_start ..< d.line_end {
+		fmt.printfln("thread-%d Remaing %d", t.id, d.line_end - j)
+		render_line(j, d.camera, d.world, &d.sb)
+	}
+}
+render_line :: proc(j: int, camera: Camera, world: []ScreenObject, sb: ^strings.Builder) {
+	for i in 0 ..< camera.image_width {
+		pixel_color := Color{0, 0, 0}
+		for sample := 0; sample < camera.samples_per_pixel; sample += 1 {
+			r := get_ray(camera, i, j)
+			pixel_color += ray_color(r, camera.max_depth, world)
+		}
+		write_color(sb, camera.pixel_samples_scale * pixel_color)
+	}
+
+}
 ray_at :: proc(ray: Ray, t: f64) -> Point3 {
 	return ray.orig + t * ray.dir
 }

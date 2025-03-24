@@ -45,15 +45,13 @@ hit_sphere :: proc(
 hit_sphere_list :: proc(
 	spheres: []Sphere,
 	r: Ray,
-	// ray_tmin: f64,
-	// ray_tmax: f64,
     ray_t:Interval,
 	rec: ^HitRecord,
 ) -> bool {
 	temp_rec: HitRecord
 	hit_anything: bool
 	closest_so_far := ray_t.max
-	for sphere in spheres {
+	for &sphere in spheres {
 		if hit_sphere(sphere, r, Interval{ray_t.min, closest_so_far}, &temp_rec) {
 			hit_anything = true
 			closest_so_far = temp_rec.t

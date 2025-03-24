@@ -18,7 +18,7 @@ ScreenObject :: union {
 }
 
 hit :: proc(obj: ScreenObject, ray: Ray, ray_t: Interval, rec: ^HitRecord) -> bool {
-	switch obj in obj {
+	switch &obj in obj {
 	case Sphere:
 		return hit_sphere(obj, ray, ray_t, rec)
 	}
